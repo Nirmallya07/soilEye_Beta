@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart';
 
 void main() {
   runApp(MaterialApp(
@@ -40,13 +42,80 @@ class _SoilFormPageState extends State<SoilFormPage> {
   final picker = ImagePicker();
   File? _image;
 
+  // Controllers for form fields
   final nameController = TextEditingController();
   final emailController = TextEditingController();
   final addressController = TextEditingController();
   final locationController = TextEditingController();
-  final khasraController = TextEditingController();
+  final khasraController = TextEditingController(); // Controller is present
   final farmSizeController = TextEditingController();
   final cropNameController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _fillLocationAutomatically();
+  }
+
+  // Dispose controllers to prevent memory leaks
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    addressController.dispose();
+    locationController.dispose();
+    khasraController.dispose();
+    farmSizeController.dispose();
+    cropNameController.dispose();
+    super.dispose();
+  }
+
+  /// ✅ Automatically gets the user’s location and fills the location field
+  Future<void> _fillLocationAutomatically() async {
+    try {
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        print("Location services are disabled.");
+        return;
+      }
+
+      // Check and request permission if necessary
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          print("Location permission denied.");
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        print("Location permission permanently denied.");
+        return;
+      }
+
+      // Use new Geolocator API with LocationSettings
+      const locationSettings = LocationSettings(
+        accuracy: LocationAccuracy.best, // replaces deprecated desiredAccuracy
+      );
+
+      // Get current position
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: locationSettings,
+      );
+
+      // Fill in the field automatically
+      setState(() {
+        locationController.text =
+            "Lat: ${position.latitude}, Lon: ${position.longitude}";
+      });
+
+      print("Fetched location: ${locationController.text}");
+    } catch (e) {
+      print("Error fetching location: $e");
+    }
+  }
 
   Future<void> pickImage() async {
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
@@ -60,14 +129,15 @@ class _SoilFormPageState extends State<SoilFormPage> {
   Future<void> submitData() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final uri = Uri.parse("http://10.12.127.213:5000/upload"); // Replace with your laptop IP
+    // Make sure to update the IP address to your server's IP
+    final uri = Uri.parse("http://10.12.78.157:5000/upload");
     var request = http.MultipartRequest("POST", uri);
 
     request.fields['name'] = nameController.text;
     request.fields['email'] = emailController.text;
     request.fields['address'] = addressController.text;
     request.fields['location'] = locationController.text;
-    request.fields['khasra'] = khasraController.text;
+    request.fields['khasra'] = khasraController.text; // Khasra field included in data upload
     request.fields['farm_size'] = farmSizeController.text;
     request.fields['crop'] = cropNameController.text;
 
@@ -84,7 +154,7 @@ class _SoilFormPageState extends State<SoilFormPage> {
       setState(() => _image = null);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Upload failed.")),
+        SnackBar(content: Text("Upload failed. Status: ${response.statusCode}")),
       );
     }
   }
@@ -112,6 +182,8 @@ class _SoilFormPageState extends State<SoilFormPage> {
             ],
           ),
           SizedBox(height: 20),
+
+          // All form fields
           TextFormField(
             controller: nameController,
             decoration: InputDecoration(labelText: "Name"),
@@ -127,16 +199,22 @@ class _SoilFormPageState extends State<SoilFormPage> {
             decoration: InputDecoration(labelText: "Address"),
             validator: (v) => v!.isEmpty ? "Required" : null,
           ),
+
+          // 1. Location field (auto-filled)
           TextFormField(
             controller: locationController,
             decoration: InputDecoration(labelText: "Location"),
             validator: (v) => v!.isEmpty ? "Required" : null,
+            // readOnly: true,
           ),
+
+          // 2. Khasra Number field
           TextFormField(
             controller: khasraController,
-            decoration: InputDecoration(labelText: "Khasra Number"),
+            decoration: InputDecoration(labelText: "Khasra Number / Plot ID"),
             validator: (v) => v!.isEmpty ? "Required" : null,
           ),
+
           TextFormField(
             controller: farmSizeController,
             decoration: InputDecoration(labelText: "Farm Size (sqft)"),
@@ -148,11 +226,17 @@ class _SoilFormPageState extends State<SoilFormPage> {
             validator: (v) => v!.isEmpty ? "Required" : null,
           ),
           SizedBox(height: 20),
-          if (_image != null)
-            Image.file(_image!, height: 150),
+
+          // Image upload
+          if (_image != null) Image.file(_image!, height: 150),
           ElevatedButton(onPressed: pickImage, child: Text("Upload Soil Image")),
           SizedBox(height: 20),
-          ElevatedButton(onPressed: submitData, child: Text("Generate Soil Health Card")),
+
+          // Submit
+          ElevatedButton(
+            onPressed: submitData,
+            child: Text("Generate Soil Health Card"),
+          ),
         ],
       ),
     );
