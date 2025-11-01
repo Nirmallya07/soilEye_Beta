@@ -4,6 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+
+// Can use path_provider and permission_handler package to directly save the generated pdf.
 
 void main() {
   runApp(MaterialApp(
@@ -70,7 +76,6 @@ class _SoilFormPageState extends State<SoilFormPage> {
     super.dispose();
   }
 
-  /// ✅ Automatically gets the user’s location and fills the location field
   Future<void> _fillLocationAutomatically() async {
     try {
       // Check if location services are enabled
@@ -105,10 +110,14 @@ class _SoilFormPageState extends State<SoilFormPage> {
         locationSettings: locationSettings,
       );
 
+      List<Placemark> placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
+      Placemark place = placemarks.first;
+
       // Fill in the field automatically
       setState(() {
         locationController.text =
             "Lat: ${position.latitude}, Lon: ${position.longitude}";
+        addressController.text = "${place.name}, ${place.street}, ${place.locality}, ${place.country}";
       });
 
       print("Fetched location: ${locationController.text}");
@@ -129,7 +138,6 @@ class _SoilFormPageState extends State<SoilFormPage> {
   Future<void> submitData() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Make sure to update the IP address to your server's IP
     final uri = Uri.parse("http://10.12.78.157:5000/upload");
     var request = http.MultipartRequest("POST", uri);
 
@@ -137,7 +145,7 @@ class _SoilFormPageState extends State<SoilFormPage> {
     request.fields['email'] = emailController.text;
     request.fields['address'] = addressController.text;
     request.fields['location'] = locationController.text;
-    request.fields['khasra'] = khasraController.text; // Khasra field included in data upload
+    request.fields['khasra'] = khasraController.text; 
     request.fields['farm_size'] = farmSizeController.text;
     request.fields['crop'] = cropNameController.text;
 
@@ -157,6 +165,97 @@ class _SoilFormPageState extends State<SoilFormPage> {
         SnackBar(content: Text("Upload failed. Status: ${response.statusCode}")),
       );
     }
+  }
+
+ Future<void> GenerateReport() async {
+
+    print("Generating soil health card");
+    
+    if(_image == null) {
+      
+      print("Tried to generate report without uploading image");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Image must be uploaded to generate a soil health card.")),
+      );
+      return;
+    } // To get a dialog box soon ..
+
+    final imageBytes = await _image?.readAsBytesSync();
+    final imageForPdf = pw.MemoryImage(imageBytes!);
+
+
+    final pdf = pw.Document();
+
+    pdf.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      build: (pw.Context content) {
+        return pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: 
+            [
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              children: [
+              pw.Text("SOIL HEALTH CARD", 
+              style: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold, 
+                fontSize: 20,
+              ),
+              )
+              ]
+            ),
+            pw.Divider(indent: 20, endIndent: 20),
+
+            pw.SizedBox(height: 30),
+
+            pw.Text("Farmer Details",
+            style: pw.TextStyle(
+              fontSize: 15, 
+              fontWeight: pw.FontWeight.values.first,
+            )),
+            pw.Divider(endIndent: 350),
+            pw.SizedBox(height: 5),
+            pw.Text("Name: ${nameController.text}"),
+            // pw.SizedBox(height: 5),
+            pw.Text("Email address: ${emailController.text}"),
+            pw.Text("Address: ${addressController.text}"),
+            pw.Text("Location: ${locationController.text}"),
+            pw.Text("Khasra number: ${khasraController.text}"),
+            pw.Text("Farm size: ${farmSizeController.text}"),
+            pw.Text("Crop name : ${cropNameController.text}"),
+            
+            pw.SizedBox(height: 15),
+            
+            pw.Text("Soil Image",
+            style: pw.TextStyle(
+              fontWeight: pw.FontWeight.values.first,
+              fontSize: 15,
+          
+            ) 
+            ),
+            pw.Divider(endIndent: 350),
+            pw.SizedBox(height: 10),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              children: [
+                pw.Image(imageForPdf, width: 250, height: 250),
+                // pw.Image(imageForPdf),
+              ]
+            )
+
+          ],
+        );
+      },
+    ),
+    );
+    await Printing.layoutPdf(
+      onLayout : (format) async => pdf.save(),
+    );
+
+    // final file = File("example.pdf");
+    // await file.writeAsBytes(await pdf.save());
+    print("Generated Soil health card succesfully");
+    return;
   }
 
   @override
@@ -230,13 +329,17 @@ class _SoilFormPageState extends State<SoilFormPage> {
           // Image upload
           if (_image != null) Image.file(_image!, height: 150),
           ElevatedButton(onPressed: pickImage, child: Text("Upload Soil Image")),
-          SizedBox(height: 20),
+          SizedBox(height: 10),
 
           // Submit
           ElevatedButton(
             onPressed: submitData,
-            child: Text("Generate Soil Health Card"),
+            child: Text("Upload Data"),
           ),
+          SizedBox(height: 10,),
+          ElevatedButton(
+            onPressed: GenerateReport,
+            child: Text("Genarate your soil health card")),
         ],
       ),
     );
