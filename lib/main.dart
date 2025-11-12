@@ -8,6 +8,9 @@ import 'package:geocoding/geocoding.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'dart:convert';
+import 'package:url_launcher/url_launcher.dart';
+
 
 // Can use path_provider and permission_handler package to directly save the generated pdf.
 
@@ -138,7 +141,7 @@ class _SoilFormPageState extends State<SoilFormPage> {
   Future<void> submitData() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final uri = Uri.parse("http://10.12.78.157:5000/upload");
+    final uri = Uri.parse("http://10.12.3.210:5000/upload");
     var request = http.MultipartRequest("POST", uri);
 
     request.fields['name'] = nameController.text;
@@ -167,96 +170,7 @@ class _SoilFormPageState extends State<SoilFormPage> {
     }
   }
 
- Future<void> GenerateReport() async {
-
-    print("Generating soil health card");
-    
-    if(_image == null) {
-      
-      print("Tried to generate report without uploading image");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Image must be uploaded to generate a soil health card.")),
-      );
-      return;
-    } // To get a dialog box soon ..
-
-    final imageBytes = await _image?.readAsBytesSync();
-    final imageForPdf = pw.MemoryImage(imageBytes!);
-
-
-    final pdf = pw.Document();
-
-    pdf.addPage(pw.Page(
-      pageFormat: PdfPageFormat.a4,
-      build: (pw.Context content) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: 
-            [
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.center,
-              children: [
-              pw.Text("SOIL HEALTH CARD", 
-              style: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold, 
-                fontSize: 20,
-              ),
-              )
-              ]
-            ),
-            pw.Divider(indent: 20, endIndent: 20),
-
-            pw.SizedBox(height: 30),
-
-            pw.Text("Farmer Details",
-            style: pw.TextStyle(
-              fontSize: 15, 
-              fontWeight: pw.FontWeight.values.first,
-            )),
-            pw.Divider(endIndent: 350),
-            pw.SizedBox(height: 5),
-            pw.Text("Name: ${nameController.text}"),
-            // pw.SizedBox(height: 5),
-            pw.Text("Email address: ${emailController.text}"),
-            pw.Text("Address: ${addressController.text}"),
-            pw.Text("Location: ${locationController.text}"),
-            pw.Text("Khasra number: ${khasraController.text}"),
-            pw.Text("Farm size: ${farmSizeController.text}"),
-            pw.Text("Crop name : ${cropNameController.text}"),
-            
-            pw.SizedBox(height: 15),
-            
-            pw.Text("Soil Image",
-            style: pw.TextStyle(
-              fontWeight: pw.FontWeight.values.first,
-              fontSize: 15,
-          
-            ) 
-            ),
-            pw.Divider(endIndent: 350),
-            pw.SizedBox(height: 10),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.center,
-              children: [
-                pw.Image(imageForPdf, width: 250, height: 250),
-                // pw.Image(imageForPdf),
-              ]
-            )
-
-          ],
-        );
-      },
-    ),
-    );
-    await Printing.layoutPdf(
-      onLayout : (format) async => pdf.save(),
-    );
-
-    // final file = File("example.pdf");
-    // await file.writeAsBytes(await pdf.save());
-    print("Generated Soil health card succesfully");
-    return;
-  }
+ 
 
   @override
   Widget build(BuildContext context) {
@@ -336,12 +250,109 @@ class _SoilFormPageState extends State<SoilFormPage> {
             onPressed: submitData,
             child: Text("Upload Data"),
           ),
-          SizedBox(height: 10,),
+
+          SizedBox(height: 10),
+          
           ElevatedButton(
-            onPressed: GenerateReport,
-            child: Text("Genarate your soil health card")),
+            onPressed: () {
+              if (nameController.text.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Please enter your name first")),
+                );
+                return;
+              }
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => UserReportsPage(username: nameController.text),
+                ),
+              );
+            },
+            child: Text("View My Reports"),
+          ),
+
         ],
       ),
+    );
+  }
+}
+
+
+class UserReportsPage extends StatefulWidget {
+  final String username;
+  UserReportsPage({required this.username});
+
+  @override
+  _UserReportsPageState createState() => _UserReportsPageState();
+}
+
+class _UserReportsPageState extends State<UserReportsPage> {
+  List<dynamic> reports = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchReports();
+  }
+
+  Future<void> fetchReports() async {
+    final uri = Uri.parse("http://10.12.78.157:5000/get_reports?username=${widget.username}");
+    try {
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['status'] == 'success') {
+          setState(() {
+            reports = data['reports'];
+            isLoading = false;
+          });
+        } else {
+          setState(() => isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed: ${data['message']}")));
+        }
+      } else {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Server error ${response.statusCode}")));
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching reports: $e")));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("${widget.username}'s Reports")),
+      body: isLoading
+          ? Center(child: CircularProgressIndicator())
+          : reports.isEmpty
+              ? Center(child: Text("No reports found."))
+              : ListView.builder(
+                  itemCount: reports.length,
+                  itemBuilder: (context, index) {
+                    final report = reports[index];
+                    return Card(
+                      child: ListTile(
+                        title: Text(report['file_name']),
+                        subtitle: Text("Survey: ${report['survey_no']} | Time: ${report['timestamp']}"),
+                        trailing: IconButton(
+                          icon: Icon(Icons.download),
+                          onPressed: () async {
+                            final url = report['url'];
+                            final uri = Uri.parse(url);
+                            if (await canLaunchUrl(uri)) {
+                              await launchUrl(uri);
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Cannot open URL")));
+                            }
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }
