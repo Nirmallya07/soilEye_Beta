@@ -91,17 +91,17 @@ class _SoilFormPageState extends State<SoilFormPage> {
       );
 
       Position position =
-          await Geolocator.getCurrentPosition(locationSettings: locationSettings);
+      await Geolocator.getCurrentPosition(locationSettings: locationSettings);
 
       List<Placemark> placemarks =
-          await placemarkFromCoordinates(position.latitude, position.longitude);
+      await placemarkFromCoordinates(position.latitude, position.longitude);
       Placemark place = placemarks.first;
 
       setState(() {
         locationController.text =
-            "Lat: ${position.latitude}, Lon: ${position.longitude}";
+        "Lat: ${position.latitude}, Lon: ${position.longitude}";
         addressController.text =
-            "${place.name}, ${place.street}, ${place.locality}, ${place.country}";
+        "${place.name}, ${place.street}, ${place.locality}, ${place.country}";
       });
     } catch (e) {
       print("Error fetching location: $e");
@@ -118,7 +118,7 @@ class _SoilFormPageState extends State<SoilFormPage> {
   Future<void> submitData() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final uri = Uri.parse("http://10.12.116.81:5000/upload");
+    final uri = Uri.parse("http://10.12.42.8:5000/upload");
     var request = http.MultipartRequest("POST", uri);
 
     request.fields['name'] = nameController.text;
@@ -265,7 +265,7 @@ class _UserReportsPageState extends State<UserReportsPage> {
 
   Future<void> fetchReports() async {
     final uri = Uri.parse(
-      "http://10.12.116.81:5000/get_reports?username=${widget.username}"
+        "http://10.12.42.8:5000/get_reports?username=${widget.username}"
     );
     try {
       final response = await http.get(uri).timeout(Duration(seconds: 30));
@@ -324,25 +324,25 @@ class _UserReportsPageState extends State<UserReportsPage> {
       body: isLoading
           ? Center(child: CircularProgressIndicator())
           : reports.isEmpty
-              ? Center(child: Text("No reports found."))
-              : ListView.builder(
-                  itemCount: reports.length,
-                  itemBuilder: (context, index) {
-                    final report = reports[index];
-                    return Card(
-                      child: ListTile(
-                        title: Text(report['file_name']),
-                        subtitle: Text(
-                            "Survey: ${report['survey_no']} | Time: ${report['timestamp']}"),
-                        trailing: IconButton(
-                          icon: Icon(Icons.download),
-                          onPressed: () => downloadAndOpenFile(
-                              report['url'], report['file_name']),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+          ? Center(child: Text("No reports found."))
+          : ListView.builder(
+        itemCount: reports.length,
+        itemBuilder: (context, index) {
+          final report = reports[index];
+          return Card(
+            child: ListTile(
+              title: Text(report['file_name']),
+              subtitle: Text(
+                  "Survey: ${report['survey_no']} | Time: ${report['timestamp']}"),
+              trailing: IconButton(
+                icon: Icon(Icons.download),
+                onPressed: () => downloadAndOpenFile(
+                    report['url'], report['file_name']),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
