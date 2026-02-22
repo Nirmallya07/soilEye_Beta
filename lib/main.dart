@@ -8,6 +8,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
+import 'package:mqtt_client/mqtt_client.dart';
+import 'package:mqtt_client/mqtt_server_client.dart';
 
 void main() {
   runApp(MaterialApp(
@@ -118,41 +120,85 @@ class _SoilFormPageState extends State<SoilFormPage> {
   Future<void> submitData() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final uri = Uri.parse("http://10.12.42.8:5000/upload");
+    if (_image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Please upload soil image")),
+      );
+      return;
+    }
+
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final submissionId = "${khasraController.text}_$timestamp";
+
+    // ===== MQTT SEND =====
+    final client = MqttServerClient('10.12.51.96', 'flutter_client');
+
+    try {
+      await client.connect();
+      if (client.connectionStatus?.state != MqttConnectionState.connected) {
+        throw Exception("MQTT connection failed");
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("MQTT connection failed")),
+      );
+      return;
+    }
+
+
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(jsonEncode({
+      "submission_id": submissionId,
+      "name": nameController.text,
+      "email": emailController.text,
+      "address": addressController.text,
+      "location": locationController.text,
+      "survey_no": khasraController.text,
+      "farm_size": farmSizeController.text,
+      "crop": cropNameController.text
+    }));
+
+    client.publishMessage(
+      'soil/data/upload',
+      MqttQos.atLeastOnce,
+      builder.payload!,
+    );
+
+    client.disconnect();
+
+    // ===== IMAGE UPLOAD =====
+    final uri = Uri.parse("http://10.12.51.96:5000/upload_image");
     var request = http.MultipartRequest("POST", uri);
 
-    request.fields['name'] = nameController.text;
-    request.fields['email'] = emailController.text;
-    request.fields['address'] = addressController.text;
-    request.fields['location'] = locationController.text;
-    request.fields['khasra'] = khasraController.text;
-    request.fields['farm_size'] = farmSizeController.text;
-    request.fields['crop'] = cropNameController.text;
+    request.fields['submission_id'] = submissionId;
 
     if (_image != null) {
-      request.files
-          .add(await http.MultipartFile.fromPath('soil_image', _image!.path));
+      request.files.add(
+        await http.MultipartFile.fromPath('soil_image', _image!.path),
+      );
     }
 
     try {
       var response = await request.send().timeout(Duration(seconds: 30));
+
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Data uploaded successfully!")),
+          SnackBar(content: Text("Submission successful")),
         );
         _formKey.currentState!.reset();
         setState(() => _image = null);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Upload failed. Status: ${response.statusCode}")),
+          SnackBar(content: Text("Upload failed")),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error uploading data: $e")),
+        SnackBar(content: Text("Error: $e")),
       );
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -239,6 +285,18 @@ class _SoilFormPageState extends State<SoilFormPage> {
             },
             child: Text("View My Reports"),
           ),
+          ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) =>
+                          LiveDataView()
+                  ),
+                );
+              },
+              child: Text("Live Data Simulator")
+          )
         ],
       ),
     );
@@ -265,7 +323,7 @@ class _UserReportsPageState extends State<UserReportsPage> {
 
   Future<void> fetchReports() async {
     final uri = Uri.parse(
-        "http://10.12.42.8:5000/get_reports?username=${widget.username}"
+        "http://10.12.51.96:5000/get_reports?username=${widget.username}"
     );
     try {
       final response = await http.get(uri).timeout(Duration(seconds: 30));
@@ -346,3 +404,102 @@ class _UserReportsPageState extends State<UserReportsPage> {
     );
   }
 }
+
+class LiveDataView extends StatefulWidget {
+  @override
+  _LiveDataViewState createState() => _LiveDataViewState();
+}
+
+class _LiveDataViewState extends State<LiveDataView> {
+
+  String message1 = "";
+  String message2 = "";
+  late MqttServerClient client;
+
+  @override
+  void initState(){
+    super.initState();
+    client = MqttServerClient('10.12.51.96', 'flutter_client');
+    client.port = 1883;
+    // functions to call here ...
+    mqttLiveData();
+  }
+
+  Future <void> mqttLiveData() async {
+
+    try{
+      await client.connect();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("MQTT connection failed with error $e")),
+      );
+      client.disconnect();
+      return;
+    }
+
+    if(client.connectionStatus!.state == MqttConnectionState.connected) {
+      print("MQTT connection successfull");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("MQTT connection successful")),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("MQTT connection failed")),
+      );
+      client.disconnect();
+      return;
+    }
+
+    const topic1 = "a";
+    const topic2 = "b";
+
+    client.subscribe(topic1, MqttQos.atLeastOnce);
+    client.subscribe(topic2, MqttQos.atLeastOnce);
+
+    client.updates!.listen((List<MqttReceivedMessage<MqttMessage?>>? c) {
+      final recMess = c![0].payload as MqttPublishMessage;
+      final msg = MqttPublishPayload.bytesToStringAsString(
+        recMess.payload.message,
+      );
+      if (c[0].topic == topic1) {
+        setState(() {
+          message1 = msg;
+        });
+      } else if (c[0].topic == topic2) {
+        setState(() {
+          message2 = msg;
+        });
+      }
+    });
+  }
+
+  void mqttDisconnect(){
+    client.disconnect();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Live Data Simulator"),
+      ),
+      body: Center(
+        child : Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              message1, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 40),
+            Text(
+              message2, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 40),
+            ElevatedButton(onPressed: mqttDisconnect, child: Text("Disconnect"))
+          ],
+        )
+      ),
+    );
+  }
+}
+
