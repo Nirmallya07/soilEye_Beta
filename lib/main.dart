@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
+import 'package:weather/weather.dart';
 
 void main() {
   runApp(MaterialApp(
@@ -47,6 +48,7 @@ class _SoilFormPageState extends State<SoilFormPage> {
   final _formKey = GlobalKey<FormState>();
   final picker = ImagePicker();
   File? _image;
+  Position? posForWeather;
 
   // Controllers
   final nameController = TextEditingController();
@@ -76,6 +78,9 @@ class _SoilFormPageState extends State<SoilFormPage> {
   }
 
   Future<void> _fillLocationAutomatically() async {
+
+    Position position;
+
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) return;
@@ -92,8 +97,8 @@ class _SoilFormPageState extends State<SoilFormPage> {
         accuracy: LocationAccuracy.best,
       );
 
-      Position position =
-      await Geolocator.getCurrentPosition(locationSettings: locationSettings);
+      position = await Geolocator.getCurrentPosition(locationSettings: locationSettings);
+      posForWeather = position;
 
       List<Placemark> placemarks =
       await placemarkFromCoordinates(position.latitude, position.longitude);
@@ -104,10 +109,49 @@ class _SoilFormPageState extends State<SoilFormPage> {
         "Lat: ${position.latitude}, Lon: ${position.longitude}";
         addressController.text =
         "${place.name}, ${place.street}, ${place.locality}, ${place.country}";
-      });
+      }
+
+      );
     } catch (e) {
       print("Error fetching location: $e");
     }
+
+    // if (position != null) {
+    //   weather(position.latitude, position.longitude);
+    // }
+  }
+
+  Future<void> weather() async {
+
+
+    const API_KEY = "0a48201c534814ccb82060355473985f";
+    double lat = posForWeather!.latitude;
+    double lon = posForWeather!.longitude;
+
+    WeatherFactory wf = WeatherFactory(API_KEY);
+    Weather w = await wf.currentWeatherByLocation(lat, lon);
+
+    print(w.toString());
+
+    // I don't prefer using this with https url parsing, though i can do.
+    // final url = Uri.https
+    //   "api.openweathermap.org",
+    //   "/data/2.5/weather",
+    //   {
+    //     "lat": lat.toString(),
+    //     "lon": lon.toString(),
+    //     "appid": API_KEY,
+    //     "units": "metric"
+    //   },
+    // );
+    // final response = await http.get(url);
+    //
+    // if (response.statusCode == 200) {
+    //   print(response);
+    // }
+    // else {
+    //   print("Error fetching weather data");
+    // }
   }
 
   Future<void> pickImage() async {
@@ -296,7 +340,9 @@ class _SoilFormPageState extends State<SoilFormPage> {
                 );
               },
               child: Text("Live Data Simulator")
-          )
+          ),
+          //////////////////////////////////////////////////////////////
+          ElevatedButton(onPressed: weather, child: Text("Weather"))
         ],
       ),
     );
